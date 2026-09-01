@@ -1,4 +1,5 @@
 pub const SDL_Window = opaque {};
+pub const SDL_Renderer = opaque {};
 
 pub extern fn SDL_Init(flags: u32) bool;
 pub extern fn SDL_Quit() void;
@@ -23,3 +24,12 @@ pub const SDL_Event = extern union {
 
 pub extern fn SDL_PollEvent(event: *SDL_Event) bool;
 pub const SDL_EVENT_QUIT: u32 = 0x100;
+
+pub extern fn SDL_CreateRenderer(
+    window: *SDL_Window,
+    name: ?[*:0]const u8,
+) ?*SDL_Renderer;
+
+pub extern fn SDL_DestoryRenderer(
+    renderer: *SDL_Renderer,
+) void;

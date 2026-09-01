@@ -1,4 +1,4 @@
-const CPU = struct {
+pub const CPU = struct {
     a: u8,
     x: u8,
     y: u8,

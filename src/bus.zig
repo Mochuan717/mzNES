@@ -1,4 +1,5 @@
 const memory_mod = @import("memory.zig");
+const ADDR_MASK: u16 = 0x07FF;
 
 pub const Bus = struct {
     ram: memory_mod.Memory,
@@ -12,7 +13,7 @@ pub const Bus = struct {
     pub fn read(self: *const Bus, addr: u16) u8 {
         switch (addr) {
             // RAM with mirrors
-            0x0000...0x1FFF => return self.ram.read(addr & 0x07FF),
+            0x0000...0x1FFF => return self.ram.read(addr & ADDR_MASK),
 
             // PPU registers with mirrors
             0x2000...0x3FFF => {
@@ -39,7 +40,7 @@ pub const Bus = struct {
     pub fn write(self: *Bus, addr: u16, value: u8) void {
         switch (addr) {
             // RAM with mirrors
-            0x0000...0x1FFF => self.ram.write(addr & 0x07FF, value),
+            0x0000...0x1FFF => self.ram.write(addr & ADDR_MASK, value),
 
             // PPU registers with mirrors
             0x2000...0x3FFF => {},
