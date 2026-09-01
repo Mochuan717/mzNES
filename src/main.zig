@@ -1,16 +1,7 @@
 const std = @import("std");
 const bus_mod = @import("bus.zig");
+const cpu_mod = @import("cpu.zig");
 const sdl = @import("sdl.zig");
-
-const CPU = struct {
-    a: u8,
-    x: u8,
-    y: u8,
-
-    pub fn loadA(self: *CPU, value: u8) void {
-        self.a = value;
-    }
-};
 
 pub fn main() !void {
     if (!sdl.SDL_Init(sdl.SDL_INIT_VIDEO)) {
@@ -37,7 +28,7 @@ pub fn main() !void {
     }
     // ------------- main loop here -------------
 
-    const cpu = CPU{
+    const cpu = cpu_mod.CPU{
         .a = 10,
         .x = 20,
         .y = 30,
