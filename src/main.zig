@@ -10,20 +10,27 @@ pub fn main() !void {
     defer sdl.SDL_Quit();
 
     const window = sdl.SDL_CreateWindow("zmNES", 768, 720, 0) orelse return error.SDLCreateWindowFailed;
-
     defer sdl.SDL_DestroyWindow(window);
+
+    const renderer = sdl.SDL_CreateRenderer(window, null) orelse return error.SDLCreateRendererFailed;
+    defer sdl.SDL_DestroyRenderer(renderer);
 
     var running = true;
 
     // ------------- main loop here -------------
     while (running) {
         var event: sdl.SDL_Event = undefined;
-
         while (sdl.SDL_PollEvent(&event)) {
             if (event.type == sdl.SDL_EVENT_QUIT) {
                 running = false;
             }
         }
+
+        // ------------ SDL event ------------
+        _ = sdl.SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+        _ = sdl.SDL_RenderClear(renderer);
+        _ = sdl.SDL_RenderPresent(renderer);
+
         sdl.SDL_Delay(1);
     }
     // ------------- main loop here -------------
