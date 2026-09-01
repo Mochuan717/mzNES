@@ -20,6 +20,3 @@ zig-cache/
 .DS_Store?
 ehthumbs.db
 Thumbs.db
-
-#SDL3
-SDL3/

@@ -1,5 +1,6 @@
 const std = @import("std");
 const bus_mod = @import("bus.zig");
+const sdl = @import("sdl.zig");
 
 const CPU = struct {
     a: u8,
@@ -11,7 +12,31 @@ const CPU = struct {
     }
 };
 
-pub fn main() void {
+pub fn main() !void {
+    if (!sdl.SDL_Init(sdl.SDL_INIT_VIDEO)) {
+        return error.SDLInitFailed;
+    }
+    defer sdl.SDL_Quit();
+
+    const window = sdl.SDL_CreateWindow("zmNES", 768, 720, 0) orelse return error.SDLCreateWindowFailed;
+
+    defer sdl.SDL_DestroyWindow(window);
+
+    var running = true;
+
+    // ------------- main loop here -------------
+    while (running) {
+        var event: sdl.SDL_Event = undefined;
+
+        while (sdl.SDL_PollEvent(&event)) {
+            if (event.type == sdl.SDL_EVENT_QUIT) {
+                running = false;
+            }
+        }
+        sdl.SDL_Delay(1);
+    }
+    // ------------- main loop here -------------
+
     const cpu = CPU{
         .a = 10,
         .x = 20,
@@ -19,8 +44,19 @@ pub fn main() void {
     };
 
     _ = cpu;
+
     var bus = bus_mod.Bus.init();
-    bus.write(0x0200, 0x0010);
-    const value = bus.read(0x0200);
-    std.debug.print("{d}", .{value});
+    bus.write(0x0200, 0x10);
+
+    var value = bus.read(0x0200);
+    std.debug.print("{d} \n", .{value});
+
+    value = bus.read(0x0A00);
+    std.debug.print("{d} \n", .{value});
+
+    value = bus.read(0x1200);
+    std.debug.print("{d} \n", .{value});
+
+    value = bus.read(0x1A00);
+    std.debug.print("{d} \n", .{value});
 }
