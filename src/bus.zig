@@ -1,5 +1,6 @@
 const memory_mod = @import("memory.zig");
 const ADDR_MASK: u16 = 0x07FF;
+const PPU_MASK: u8 = 0xFF;
 
 pub const Bus = struct {
     ram: memory_mod.Memory,
