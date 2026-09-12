@@ -1,4 +1,4 @@
-# zmNES
+# mzNES
 
 A lightweight, educational Nintendo Entertainment System (NES) emulator written in **Zig**.
 
