@@ -1,13 +1,16 @@
 const memory_mod = @import("memory.zig");
+const cartridge_mod = @import("cartridge.zig");
 const ADDR_MASK: u16 = 0x07FF;
 const PPU_MASK: u8 = 0xFF;
 
 pub const Bus = struct {
     ram: memory_mod.Memory,
+    cartridge: *const cartridge_mod.Cartridge,
 
-    pub fn init() Bus {
+    pub fn init(ctrd: *const cartridge_mod.Cartridge) Bus {
         return Bus{
             .ram = memory_mod.Memory.init(),
+            .cartridge = ctrd,
         };
     }
 
@@ -31,10 +34,13 @@ pub const Bus = struct {
                 return 0;
             },
 
-            // cartridge
-            0x4020...0xFFFF => {
+            // mapper cartridge
+            0x4020...0x7FFF => {
                 return 0;
             },
+
+            // cartridge
+            0x8000...0xFFFF => return self.cartridge.cpuRead(addr),
         }
     }
 
