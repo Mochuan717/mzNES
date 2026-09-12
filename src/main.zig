@@ -32,6 +32,7 @@ fn tranU16(low: u8, high: u8) u16 {
     return temp;
 }
 
+// ======== MAIN ========
 pub fn main(init: std.process.Init) !void {
     var cart = try cartridge.loadCartridge(init.io, init.gpa, "roms/SMB.nes");
     defer cart.deinit(init.gpa);
