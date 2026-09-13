@@ -1,5 +1,5 @@
 const std = @import("std");
-const ADDR_MASK: u16 = 0x8000;
+const MAPPER0_MASK: u16 = 0x8000;
 
 pub const Mirroring = enum {
     horizontal,
@@ -13,6 +13,28 @@ pub const INESHeader = struct {
     mirroring: Mirroring,
     has_battery: bool,
     has_trainer: bool,
+};
+
+// ======== Cartridge ========
+pub const Cartridge = struct {
+    prg_rom: []u8,
+    chr_rom: []u8,
+    mapper: u8,
+    mirroring: Mirroring,
+
+    pub fn cpuRead(self: *const Cartridge, addr: u16) u8 {
+        // 切换不同mapper
+        switch (self.mapper) {
+            0 => return self.prg_rom[addr - MAPPER0_MASK],
+
+            else => unreachable,
+        }
+    }
+
+    pub fn deinit(self: Cartridge, allocator: std.mem.Allocator) void {
+        allocator.free(self.prg_rom);
+        allocator.free(self.chr_rom);
+    }
 };
 
 pub fn parseHeader(header: [16]u8) !INESHeader {
@@ -40,27 +62,6 @@ pub fn parseHeader(header: [16]u8) !INESHeader {
     return inh;
 }
 
-// ======== Cartridge ========
-pub const Cartridge = struct {
-    prg_rom: []u8,
-    chr_rom: []u8,
-    mapper: u8,
-    mirroring: Mirroring,
-
-    pub fn cpuRead(self: *const Cartridge, addr: u16) u8 {
-        // 切换不同mapper
-        switch (self.mapper) {
-            0 => return self.prg_rom[addr - ADDR_MASK],
-            else => unreachable,
-        }
-    }
-
-    pub fn deinit(self: Cartridge, allocator: std.mem.Allocator) void {
-        allocator.free(self.prg_rom);
-        allocator.free(self.chr_rom);
-    }
-};
-
 pub fn loadCartridge(io: std.Io, allocator: std.mem.Allocator, path: []const u8) !Cartridge {
     // ======== 读取文件 ========
     var ctrd_file = try std.Io.Dir.cwd().openFile(io, path, .{});
@@ -79,7 +80,7 @@ pub fn loadCartridge(io: std.Io, allocator: std.mem.Allocator, path: []const u8)
     }
 
     // ======== 有切片结构体的初始化方法！非常重要！！ ========
-    const prg_size = @as(usize, inesheader.prg_banks) * 16 * 1024;
+    const prg_size = @as(usize, inesheader.prg_banks) * 16 * 1024; // u8升格为usize，否则会以u8进行计算
     const prg_rom = try allocator.alloc(u8, prg_size);
     errdefer allocator.free(prg_rom);
     const chr_size = @as(usize, inesheader.chr_banks) * 8 * 1024;
@@ -97,16 +98,11 @@ pub fn loadCartridge(io: std.Io, allocator: std.mem.Allocator, path: []const u8)
     if (prg_read != ctrd.prg_rom.len) {
         return error.InvalidPRGROM;
     }
-    const prg_rom_last = ctrd.prg_rom[ctrd.prg_rom.len - 6 ..];
-    for (prg_rom_last) |byte| {
-        std.debug.print("{X:0>2}\n", .{byte});
-    }
 
     const chr_read = try ctrd_file.readStreaming(io, &.{ctrd.chr_rom});
     if (chr_read != ctrd.chr_rom.len) {
         return error.InvalidCHRROM;
     }
-
     // -------- 有切片结构体的初始化方法！非常重要！！ --------
 
     std.debug.print("READ PRG ROM: {d} bytes \n", .{ctrd.prg_rom.len});

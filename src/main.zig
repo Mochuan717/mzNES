@@ -27,21 +27,19 @@ fn drawTextPattern(
     }
 }
 
-fn tranU16(low: u8, high: u8) u16 {
-    const temp: u16 = (@as(u16, high) << 8) | (@as(u16, low));
-    return temp;
-}
-
 // ======== MAIN ========
 pub fn main(init: std.process.Init) !void {
     var cart = try cartridge.loadCartridge(init.io, init.gpa, "roms/SMB.nes");
     defer cart.deinit(init.gpa);
 
-    const bus = bus_mod.Bus.init(&cart);
-    const reset_low = bus.read(0xFFFC);
-    const reset_high = bus.read(0xFFFD);
-    const reset = tranU16(reset_low, reset_high);
-    std.debug.print("the reset is {X:0>4}", .{reset});
+    var bus = bus_mod.Bus.init(&cart);
+    var cpu = cpu_mod.CPU.init(&bus);
+    cpu.reset();
+    try cpu.run();
+    try cpu.run();
+    try cpu.run();
+    std.debug.print("PC: {X:0>4}\n", .{cpu.pc});
+    std.debug.print("A: {X:0>4}\n", .{cpu.a});
 
     // ======== 初始化SDL ========
     if (!sdl.SDL_Init(sdl.SDL_INIT_VIDEO)) {
