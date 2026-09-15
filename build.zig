@@ -4,29 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const memory_mod = b.createModule(.{
-        .root_source_file = b.path("src/memory.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const bus_mod = b.createModule(.{
-        .root_source_file = b.path("src/bus.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    bus_mod.addImport("memory", memory_mod);
-
     const exe = b.addExecutable(.{
         .name = "zmNES",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{
-                .{ .name = "zmNES", .module = bus_mod },
-            },
         }),
     });
 

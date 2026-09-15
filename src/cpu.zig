@@ -205,6 +205,8 @@ pub const CPU = struct {
                 const final_addr = readU16LE(indirect_low, indirect_high);
                 break :blk final_addr;
             },
+
+            else => undefined,
         };
     }
 
