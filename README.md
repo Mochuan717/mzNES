@@ -4,7 +4,7 @@ A lightweight, educational Nintendo Entertainment System (NES) emulator written 
 The source code is licensed under the MIT license.  
 
   
-Project started: `9.1.2026`  
+Project started: `Sep.1.2026`  
 Project finished: 
 
 [![Zig Version](https://img.shields.io/badge/Zig-0.17.0-orange.svg)](https://ziglang.org/)

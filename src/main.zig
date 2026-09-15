@@ -35,9 +35,10 @@ pub fn main(init: std.process.Init) !void {
     var bus = bus_mod.Bus.init(&cart);
     var cpu = cpu_mod.CPU.init(&bus);
     cpu.reset();
-    try cpu.run();
-    try cpu.run();
-    try cpu.run();
+    try cpu.step();
+    try cpu.step();
+    try cpu.step();
+
     std.debug.print("PC: {X:0>4}\n", .{cpu.pc});
     std.debug.print("A: {X:0>4}\n", .{cpu.a});
 

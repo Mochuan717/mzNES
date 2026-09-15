@@ -13,8 +13,19 @@ const Flags = struct {
 };
 
 const AddressingMode = enum {
-    implied,
+    accumulator,
+    absolute,
+    absolute_x,
+    absolute_y,
     immediate,
+    implied,
+    indirect,
+    indexed_indirect,
+    indirect_indexed,
+    relative,
+    zeropage,
+    zeropage_x,
+    zeropage_y,
 };
 
 const Operation = enum {
@@ -66,23 +77,47 @@ pub const CPU = struct {
 
     pub fn fetchByte(self: *CPU) u8 {
         const code = self.bus.read(self.pc);
-        std.debug.print("{X:0>2}  ", .{code});
         self.pc += 1;
         return code;
     }
 
-    pub fn setFlag(self: *CPU, flag: u8) void {
-        self.status |= flag;
+    pub fn setFlag(self: *CPU, flag: u8, value: bool) void {
+        if (value) {
+            self.status |= flag;
+        } else {
+            self.status &= ~flag;
+        }
     }
 
-    pub fn clearFlag(self: *CPU, flag: u8) void {
-        self.status &= ~flag;
+    pub fn trace(self: *CPU, pc: u16, ins: Instruction) void {
+        std.debug.print("{X:0>4}    ", .{pc});
+        var i: u8 = 0;
+        while (i < ins.bytes) : (i += 1) {
+            std.debug.print("{X:0>2}  ", .{self.bus.read(pc + @as(u16, i))});
+        }
+
+        std.debug.print(
+            "{s}  A:{X:0>2} X:{X:0>2} Y:{X:0>2} P:{X:0>2} SP:{X:0>2} CYC:{d}\n",
+            .{
+                @tagName(ins.operation),
+                self.a,
+                self.x,
+                self.y,
+                self.status,
+                self.sp,
+                self.cycles,
+            },
+        );
     }
 
-    pub fn run(self: *CPU) !void {
-        std.debug.print("{X:0>4}    ", .{self.pc});
+    pub fn step(self: *CPU) !void {
+        const pc_before = self.pc;
+
         const code = self.fetchByte();
         const ins = try decode(code);
+
+        self.trace(pc_before, ins);
+
         self.execute(ins);
     }
 
@@ -116,44 +151,83 @@ pub const CPU = struct {
     // -------- OPCODE TABLE --------
 
     // ======== Resolve addressing mode ========
-    pub fn resolveAddrMode(self: *CPU, mode: AddressingMode, steps: u8) u16 {
-        var addr: u16 = undefined;
-        var stp: u8 = steps;
-        switch (mode) {
-            .immediate => {
-                addr = self.pc;
-                while (stp - 1 > 0) {
-                    _ = self.fetchByte();
-                    stp -= 1;
-                }
-                return addr;
+    pub fn resolveAddrMode(self: *CPU, mode: AddressingMode) u16 {
+        return switch (mode) {
+            .implied => return 0,
+
+            .immediate => blk: {
+                const final_addr = self.pc;
+                self.pc += 1;
+                break :blk final_addr;
             },
-            else => return 0,
-        }
+
+            .absolute => blk: {
+                const addr_low = self.fetchByte();
+                const addr_high = self.fetchByte();
+                const final_addr: u16 = readU16LE(addr_low, addr_high);
+                break :blk final_addr;
+            },
+
+            .absolute_x => blk: {
+                const addr_low = self.fetchByte();
+                const addr_high = self.fetchByte();
+                const base_addr: u16 = readU16LE(addr_low, addr_high);
+                const final_addr = base_addr +% @as(u16, self.x);
+                break :blk final_addr;
+            },
+
+            .absolute_y => blk: {
+                const addr_low = self.fetchByte();
+                const addr_high = self.fetchByte();
+                const base_addr: u16 = readU16LE(addr_low, addr_high);
+                const final_addr = base_addr +% @as(u16, self.y);
+                break :blk final_addr;
+            },
+
+            .zeropage => @as(u16, self.fetchByte()),
+
+            .zeropage_x => @as(u16, self.fetchByte() +% self.x),
+
+            .zeropage_y => @as(u16, self.fetchByte() +% self.y),
+
+            .indirect => blk: {
+                const addr_low = self.fetchByte();
+                const addr_high = self.fetchByte();
+                const base_addr: u16 = readU16LE(addr_low, addr_high);
+                const indirect_low = self.bus.read(base_addr);
+
+                // 6502经典bug。JMP跳转时，低位为0x02FF时，+1 后等于 0x0200
+                const indirect_high = if (base_addr & 0x00FF == 0x00FF)
+                    self.bus.read(base_addr & 0xFF00)
+                else
+                    self.bus.read(base_addr + 1);
+
+                const final_addr = readU16LE(indirect_low, indirect_high);
+                break :blk final_addr;
+            },
+        };
     }
+
+    // -------- Resolve addressing mode --------
 
     // ======== OPCODE EXCUTION ========
     pub fn execute(self: *CPU, ins: Instruction) void {
-        const addr = self.resolveAddrMode(ins.mode, ins.bytes);
+        const addr = self.resolveAddrMode(ins.mode);
         switch (ins.operation) {
             .sei => {
-                self.setFlag(Flags.InterruptDisable);
-                std.debug.print("sei", .{});
+                self.setFlag(Flags.InterruptDisable, true);
             },
             .cld => {
-                self.clearFlag(Flags.Decimal);
-                std.debug.print("cld", .{});
+                self.setFlag(Flags.Decimal, false);
             },
             .lda => {
                 const value = self.bus.read(addr);
                 self.a = value;
-                self.setFlag(Flags.Zero);
-                self.setFlag(Flags.Negative);
-                std.debug.print("lda  {X:0>2}", .{value});
+                self.setFlag(Flags.Zero, self.a == 0);
+                self.setFlag(Flags.Negative, self.a & 0x80 != 0);
             },
         }
         self.cycles += ins.cycles;
-        std.debug.print("    cycles={d}\n", .{self.cycles});
     }
     // -------- OPCODE EXCUTION --------
 };
