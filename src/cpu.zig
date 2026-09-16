@@ -14,24 +14,100 @@ const Flags = struct {
 
 const AddressingMode = enum {
     accumulator,
+    implied,
+    immediate,
     absolute,
     absolute_x,
     absolute_y,
-    immediate,
-    implied,
-    indirect,
-    indexed_indirect,
-    indirect_indexed,
-    relative,
     zeropage,
     zeropage_x,
     zeropage_y,
+    indexed_indirect,
+    indirect_indexed,
+    // 特殊控制流
+    indirect,
+    relative,
 };
 
 const Operation = enum {
-    sei,
-    cld,
+    // Load/store
     lda,
+    ldx,
+    ldy,
+    sta,
+    stx,
+    sty,
+
+    // Register
+    tax,
+    tay,
+    txa,
+    tya,
+    tsx,
+    txs,
+
+    // Stack
+    pha,
+    php,
+    pla,
+    plp,
+
+    // Arithmetic
+    adc,
+    sbc,
+
+    // Logic
+    and_,
+    ora,
+    eor,
+
+    // Compare
+    cmp,
+    cpx,
+    cpy,
+
+    // Increment/decrement
+    inc,
+    inx,
+    iny,
+    dec,
+    dex,
+    dey,
+
+    // Shift
+    asl,
+    lsr,
+    rol,
+    ror,
+
+    // Jump
+    jmp,
+    jsr,
+    rts,
+
+    // Branch
+    bcc,
+    bcs,
+    beq,
+    bmi,
+    bne,
+    bpl,
+    bvc,
+    bvs,
+
+    // Flags
+    clc,
+    cld,
+    cli,
+    clv,
+    sec,
+    sed,
+    sei,
+
+    // Other
+    nop,
+    brk,
+    rti,
 };
 
 const Instruction = struct {
@@ -39,6 +115,11 @@ const Instruction = struct {
     mode: AddressingMode,
     bytes: u8,
     cycles: u8,
+};
+
+const AddressResult = struct {
+    addr: u16,
+    page_crossed: bool = false,
 };
 
 // ======== CPU ========
@@ -79,6 +160,13 @@ pub const CPU = struct {
         const code = self.bus.read(self.pc);
         self.pc += 1;
         return code;
+    }
+
+    pub fn fetchWord(self: *CPU) u16 {
+        const addr_low = self.fetchByte();
+        const addr_high = self.fetchByte();
+        const final_addr: u16 = readU16LE(addr_low, addr_high);
+        return final_addr;
     }
 
     pub fn setFlag(self: *CPU, flag: u8, value: bool) void {
@@ -151,8 +239,9 @@ pub const CPU = struct {
     // -------- OPCODE TABLE --------
 
     // ======== Resolve addressing mode ========
-    pub fn resolveAddrMode(self: *CPU, mode: AddressingMode) u16 {
+    pub fn resolveAddrMode(self: *CPU, mode: AddressingMode) AddressResult {
         return switch (mode) {
+            .accumulator => return 0,
             .implied => return 0,
 
             .immediate => blk: {
@@ -162,40 +251,46 @@ pub const CPU = struct {
             },
 
             .absolute => blk: {
-                const addr_low = self.fetchByte();
-                const addr_high = self.fetchByte();
-                const final_addr: u16 = readU16LE(addr_low, addr_high);
+                const final_addr = self.fetchWord();
                 break :blk final_addr;
             },
 
             .absolute_x => blk: {
-                const addr_low = self.fetchByte();
-                const addr_high = self.fetchByte();
-                const base_addr: u16 = readU16LE(addr_low, addr_high);
+                const base_addr = self.fetchWord();
                 const final_addr = base_addr +% @as(u16, self.x);
                 break :blk final_addr;
             },
 
             .absolute_y => blk: {
-                const addr_low = self.fetchByte();
-                const addr_high = self.fetchByte();
-                const base_addr: u16 = readU16LE(addr_low, addr_high);
+                const base_addr = self.fetchWord();
                 const final_addr = base_addr +% @as(u16, self.y);
                 break :blk final_addr;
             },
 
             .zeropage => @as(u16, self.fetchByte()),
-
             .zeropage_x => @as(u16, self.fetchByte() +% self.x),
-
             .zeropage_y => @as(u16, self.fetchByte() +% self.y),
 
-            .indirect => blk: {
-                const addr_low = self.fetchByte();
-                const addr_high = self.fetchByte();
-                const base_addr: u16 = readU16LE(addr_low, addr_high);
+            .indexed_indirect => blk: {
+                const base_addr = @as(u16, self.fetchByte() +% self.x);
                 const indirect_low = self.bus.read(base_addr);
+                const indirect_high = self.bus.read(base_addr +% 1);
+                const final_addr = readU16LE(indirect_low, indirect_high);
+                break :blk final_addr;
+            },
 
+            .indirect_indexed => blk: {
+                const base_addr = self.fetchByte();
+                const indirect_low = self.bus.read(@as(u16, base_addr));
+                const indirect_high = self.bus.read(@as(u16, base_addr +% 1));
+                const final_addr = readU16LE(indirect_low, indirect_high) +% @as(u16, self.y);
+                break :blk final_addr;
+            },
+
+            // 特殊控制流
+            .indirect => blk: {
+                const base_addr = self.fetchWord();
+                const indirect_low = self.bus.read(base_addr);
                 // 6502经典bug。JMP跳转时，低位为0x02FF时，+1 后等于 0x0200
                 const indirect_high = if (base_addr & 0x00FF == 0x00FF)
                     self.bus.read(base_addr & 0xFF00)
@@ -206,7 +301,13 @@ pub const CPU = struct {
                 break :blk final_addr;
             },
 
-            else => undefined,
+            .relative => blk: {
+                const raw_offset = self.fetchByte();
+                const offset: i8 = @bitCast(raw_offset);
+                const offset_u16: u16 = @bitCast(@as(i16, offset));
+                const final_addr = self.pc +% offset_u16;
+                break :blk final_addr;
+            },
         };
     }
 
