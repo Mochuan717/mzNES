@@ -115,6 +115,7 @@ const Instruction = struct {
     mode: AddressingMode,
     bytes: u8,
     cycles: u8,
+    page_cycle: bool = false,
 };
 
 const AddressResult = struct {
@@ -241,50 +242,69 @@ pub const CPU = struct {
     // ======== Resolve addressing mode ========
     pub fn resolveAddrMode(self: *CPU, mode: AddressingMode) AddressResult {
         return switch (mode) {
-            .accumulator => return 0,
-            .implied => return 0,
+            .accumulator => .{ .addr = 0 },
+            .implied => .{ .addr = 0 },
 
             .immediate => blk: {
                 const final_addr = self.pc;
                 self.pc += 1;
-                break :blk final_addr;
+                break :blk .{ .addr = final_addr };
             },
 
             .absolute => blk: {
                 const final_addr = self.fetchWord();
-                break :blk final_addr;
+                break :blk .{ .addr = final_addr };
             },
 
             .absolute_x => blk: {
                 const base_addr = self.fetchWord();
                 const final_addr = base_addr +% @as(u16, self.x);
-                break :blk final_addr;
+                // check page crossed
+                const pagecros: bool = (base_addr & 0xFF00) != (final_addr & 0xFF00);
+
+                break :blk .{
+                    .addr = final_addr,
+                    .page_crossed = pagecros,
+                };
             },
 
             .absolute_y => blk: {
                 const base_addr = self.fetchWord();
                 const final_addr = base_addr +% @as(u16, self.y);
-                break :blk final_addr;
+                // check page crossed
+                const pagecros: bool = (base_addr & 0xFF00) != (final_addr & 0xFF00);
+
+                break :blk .{
+                    .addr = final_addr,
+                    .page_crossed = pagecros,
+                };
             },
 
-            .zeropage => @as(u16, self.fetchByte()),
-            .zeropage_x => @as(u16, self.fetchByte() +% self.x),
-            .zeropage_y => @as(u16, self.fetchByte() +% self.y),
+            .zeropage => .{ .addr = @as(u16, self.fetchByte()) },
+            .zeropage_x => .{ .addr = @as(u16, self.fetchByte() +% self.x) },
+            .zeropage_y => .{ .addr = @as(u16, self.fetchByte() +% self.y) },
 
             .indexed_indirect => blk: {
-                const base_addr = @as(u16, self.fetchByte() +% self.x);
+                const base_addr = self.fetchByte() +% self.x;
                 const indirect_low = self.bus.read(base_addr);
                 const indirect_high = self.bus.read(base_addr +% 1);
                 const final_addr = readU16LE(indirect_low, indirect_high);
-                break :blk final_addr;
+                break :blk .{ .addr = final_addr };
             },
 
             .indirect_indexed => blk: {
                 const base_addr = self.fetchByte();
-                const indirect_low = self.bus.read(@as(u16, base_addr));
-                const indirect_high = self.bus.read(@as(u16, base_addr +% 1));
-                const final_addr = readU16LE(indirect_low, indirect_high) +% @as(u16, self.y);
-                break :blk final_addr;
+                const indirect_low = self.bus.read(base_addr);
+                const indirect_high = self.bus.read(base_addr +% 1);
+                const final_addr_before = readU16LE(indirect_low, indirect_high);
+                const final_addr = final_addr_before +% @as(u16, self.y);
+                // check page crossed
+                const pagecros: bool = (final_addr_before & 0xFF00) != (final_addr & 0xFF00);
+
+                break :blk .{
+                    .addr = final_addr,
+                    .page_crossed = pagecros,
+                };
             },
 
             // 特殊控制流
@@ -298,15 +318,22 @@ pub const CPU = struct {
                     self.bus.read(base_addr + 1);
 
                 const final_addr = readU16LE(indirect_low, indirect_high);
-                break :blk final_addr;
+                break :blk .{ .addr = final_addr };
             },
 
             .relative => blk: {
                 const raw_offset = self.fetchByte();
                 const offset: i8 = @bitCast(raw_offset);
                 const offset_u16: u16 = @bitCast(@as(i16, offset));
-                const final_addr = self.pc +% offset_u16;
-                break :blk final_addr;
+                const final_addr_before = self.pc;
+                const final_addr = final_addr_before +% offset_u16;
+                // check page crossed
+                const pagecros = (final_addr_before & 0xFF00) != (final_addr & 0xFF00);
+
+                break :blk .{
+                    .addr = final_addr,
+                    .page_crossed = pagecros,
+                };
             },
         };
     }
@@ -315,7 +342,7 @@ pub const CPU = struct {
 
     // ======== OPCODE EXCUTION ========
     pub fn execute(self: *CPU, ins: Instruction) void {
-        const addr = self.resolveAddrMode(ins.mode);
+        const addr_res = self.resolveAddrMode(ins.mode);
         switch (ins.operation) {
             .sei => {
                 self.setFlag(Flags.InterruptDisable, true);
@@ -324,7 +351,7 @@ pub const CPU = struct {
                 self.setFlag(Flags.Decimal, false);
             },
             .lda => {
-                const value = self.bus.read(addr);
+                const value = self.bus.read(addr_res.addr);
                 self.a = value;
                 self.setFlag(Flags.Zero, self.a == 0);
                 self.setFlag(Flags.Negative, self.a & 0x80 != 0);
