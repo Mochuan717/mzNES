@@ -1,33 +1,6 @@
 const std = @import("std");
 const Bus = @import("bus.zig").Bus;
-
-const Flags = struct {
-    const Carry: u8 = 0x01;
-    const Zero: u8 = 0x02;
-    const InterruptDisable: u8 = 0x04;
-    const Decimal: u8 = 0x08;
-    const Break: u8 = 0x10;
-    const Unused: u8 = 0x20;
-    const Overflow: u8 = 0x40;
-    const Negative: u8 = 0x80;
-};
-
-const AddressingMode = enum {
-    accumulator,
-    implied,
-    immediate,
-    absolute,
-    absolute_x,
-    absolute_y,
-    zeropage,
-    zeropage_x,
-    zeropage_y,
-    indexed_indirect,
-    indirect_indexed,
-    // 特殊控制流
-    indirect,
-    relative,
-};
+const STACK_B: u16 = 0x100;
 
 const Operation = enum {
     // Load/store
@@ -110,12 +83,40 @@ const Operation = enum {
     rti,
 };
 
+const Flags = struct {
+    const Carry: u8 = 0x01;
+    const Zero: u8 = 0x02;
+    const InterruptDisable: u8 = 0x04;
+    const Decimal: u8 = 0x08;
+    const Break: u8 = 0x10;
+    const Unused: u8 = 0x20;
+    const Overflow: u8 = 0x40;
+    const Negative: u8 = 0x80;
+};
+
+const AddressingMode = enum {
+    accumulator,
+    implied,
+    immediate,
+    absolute,
+    absolute_x,
+    absolute_y,
+    zeropage,
+    zeropage_x,
+    zeropage_y,
+    indexed_indirect,
+    indirect_indexed,
+    // 特殊控制流
+    indirect,
+    relative,
+};
+
 const Instruction = struct {
     operation: Operation,
     mode: AddressingMode,
     bytes: u8,
     cycles: u8,
-    page_cycle: bool = false,
+    page_cycle_penalty: bool = false,
 };
 
 const AddressResult = struct {
@@ -178,6 +179,23 @@ pub const CPU = struct {
         }
     }
 
+    pub fn setFlagZN(self: *CPU) void {
+        self.setFlag(Flags.Zero, self.a == 0);
+        self.setFlag(Flags.Negative, self.a & 0x80 != 0);
+    }
+
+    pub fn pushStack(self: *CPU, value: u8) void {
+        const sp_addr: u16 = STACK_B + @as(u16, self.sp);
+        self.bus.write(sp_addr, value);
+        self.sp -%= 1;
+    }
+
+    pub fn popStack(self: *CPU) u8 {
+        self.sp +%= 1;
+        const sp_addr: u16 = STACK_B + @as(u16, self.sp);
+        return self.bus.read(sp_addr);
+    }
+
     pub fn trace(self: *CPU, pc: u16, ins: Instruction) void {
         std.debug.print("{X:0>4}    ", .{pc});
         var i: u8 = 0;
@@ -227,13 +245,571 @@ pub const CPU = struct {
                 .cycles = 2,
             },
 
+            // ===== load =====
+            // LDA
             0xA9 => .{
                 .operation = .lda,
                 .mode = .immediate,
                 .bytes = 2,
                 .cycles = 2,
             },
+            0xA5 => .{
+                .operation = .lda,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0xB5 => .{
+                .operation = .lda,
+                .mode = .zeropage_x,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0xAD => .{
+                .operation = .lda,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            0xBD => .{
+                .operation = .lda,
+                .mode = .absolute_x,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0xB9 => .{
+                .operation = .lda,
+                .mode = .absolute_y,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0xA1 => .{
+                .operation = .lda,
+                .mode = .indexed_indirect,
+                .bytes = 2,
+                .cycles = 6,
+            },
+            0xB1 => .{
+                .operation = .lda,
+                .mode = .indirect_indexed,
+                .bytes = 2,
+                .cycles = 5,
+                .page_cycle_penalty = true,
+            },
+            //LDX
+            0xA2 => .{
+                .operation = .ldx,
+                .mode = .immediate,
+                .bytes = 2,
+                .cycles = 2,
+            },
+            0xA6 => .{
+                .operation = .ldx,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0xB6 => .{
+                .operation = .ldx,
+                .mode = .zeropage_y,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0xAE => .{
+                .operation = .ldx,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            0xBE => .{
+                .operation = .ldx,
+                .mode = .absolute_y,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            //LDY
+            0xA0 => .{
+                .operation = .ldy,
+                .mode = .immediate,
+                .bytes = 2,
+                .cycles = 2,
+            },
+            0xA4 => .{
+                .operation = .ldY,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0xB4 => .{
+                .operation = .ldY,
+                .mode = .zeropage_x,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0xAC => .{
+                .operation = .ldY,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            0xBC => .{
+                .operation = .ldY,
+                .mode = .absolute_x,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
 
+            // ===== store =====
+            // STA
+            0x85 => .{
+                .operation = .sta,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0x95 => .{
+                .operation = .sta,
+                .mode = .zeropage_x,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0x8D => .{
+                .operation = .sta,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            0x9D => .{
+                .operation = .sta,
+                .mode = .absolute_x,
+                .bytes = 3,
+                .cycles = 5,
+            },
+            0x99 => .{
+                .operation = .sta,
+                .mode = .absolute_y,
+                .bytes = 3,
+                .cycles = 5,
+            },
+            0x81 => .{
+                .operation = .sta,
+                .mode = .indexed_indirect,
+                .bytes = 2,
+                .cycles = 6,
+            },
+            0x91 => .{
+                .operation = .sta,
+                .mode = .indirect_indexed,
+                .bytes = 2,
+                .cycles = 6,
+            },
+            //STX
+            0x86 => .{
+                .operation = .stx,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0x96 => .{
+                .operation = .stx,
+                .mode = .zeropage_y,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0x8E => .{
+                .operation = .stx,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            //STY
+            0x84 => .{
+                .operation = .sty,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0x94 => .{
+                .operation = .sty,
+                .mode = .zeropage_x,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0x8C => .{
+                .operation = .sty,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            // ===== register =====
+            // TAX
+            0xAA => .{
+                .operation = .tax,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+            // TAY
+            0xA8 => .{
+                .operation = .tay,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+            // TSX
+            0xBA => .{
+                .operation = .tsx,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+            // TXA
+            0x8A => .{
+                .operation = .txa,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+            // TXS
+            0x9A => .{
+                .operation = .txs,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+            // TYA
+            0x98 => .{
+                .operation = .tya,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+            // INX
+            0xE8 => .{
+                .operation = .inx,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+            // INY
+            0xC8 => .{
+                .operation = .iny,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+            // DEX
+            0xCA => .{
+                .operation = .dex,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+            // DEY
+            0x88 => .{
+                .operation = .dey,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 2,
+            },
+
+            // ===== stack =====
+            // PHA
+            0x48 => .{
+                .operation = .pha,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 3,
+            },
+            // PHP
+            0x08 => .{
+                .operation = .php,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 3,
+            },
+            // PLA
+            0x68 => .{
+                .operation = .pla,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 4,
+            },
+            // PLP
+            0x28 => .{
+                .operation = .plp,
+                .mode = .implied,
+                .bytes = 1,
+                .cycles = 4,
+            },
+
+            // ===== Artihmetic ====
+            // ADC
+            0x69 => .{
+                .operation = .adc,
+                .mode = .immediate,
+                .bytes = 2,
+                .cycles = 2,
+            },
+            0x65 => .{
+                .operation = .adc,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0x75 => .{
+                .operation = .adc,
+                .mode = .zeropage_x,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0x6D => .{
+                .operation = .adc,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            0x7D => .{
+                .operation = .adc,
+                .mode = .absolute_x,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0x79 => .{
+                .operation = .adc,
+                .mode = .absolute_y,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_pennalty = true,
+            },
+            0x61 => .{
+                .operation = .adc,
+                .mode = .indexed_indirect,
+                .bytes = 2,
+                .cycles = 6,
+            },
+            0x71 => .{
+                .operation = .adc,
+                .mode = .indirect_indexed,
+                .bytes = 2,
+                .cycles = 5,
+                .page_cycle_penalty = true,
+            },
+            // SBC
+            0xE9 => .{
+                .operation = .sbc,
+                .mode = .immediate,
+                .bytes = 2,
+                .cycles = 2,
+            },
+            0xE5 => .{
+                .operation = .sbc,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0xF5 => .{
+                .operation = .sbc,
+                .mode = .zeropage_x,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0xED => .{
+                .operation = .sbc,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            0xFD => .{
+                .operation = .sbc,
+                .mode = .absolute_x,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0xF9 => .{
+                .operation = .sbc,
+                .mode = .absolute_y,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0xE1 => .{
+                .operation = .sbc,
+                .mode = .indexed_indirect,
+                .bytes = 2,
+                .cycles = 6,
+            },
+            0xF1 => .{
+                .operation = .sbc,
+                .mode = .indirect_indexed,
+                .bytes = 2,
+                .cycles = 5,
+                .page_cycle_penalty = true,
+            },
+
+            // ===== logic =====
+            // AND
+            0x29 => .{
+                .operation = .and_,
+                .mode = .immediate,
+                .bytes = 2,
+                .cycles = 2,
+            },
+            0x25 => .{
+                .operation = .and_,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0x35 => .{
+                .operation = .and_,
+                .mode = .zeropage_x,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0x2D => .{
+                .operation = .and_,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            0x3D => .{
+                .operation = .and_,
+                .mode = .absolute_x,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0x39 => .{
+                .operation = .and_,
+                .mode = .absolute_y,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0x21 => .{
+                .operation = .and_,
+                .mode = .indexed_indirect,
+                .bytes = 2,
+                .cycles = 6,
+            },
+            0x31 => .{
+                .operation = .and_,
+                .mode = .indirect_indexed,
+                .bytes = 2,
+                .cycles = 5,
+                .page_cycle_penalty = true,
+            },
+            // ORA
+            0x09 => .{
+                .operation = .ora,
+                .mode = .immediate,
+                .bytes = 2,
+                .cycles = 2,
+            },
+            0x05 => .{
+                .operation = .ora,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0x15 => .{
+                .operation = .ora,
+                .mode = .zeropage_x,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0x0D => .{
+                .operation = .ora,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            0x1D => .{
+                .operation = .ora,
+                .mode = .absolute_x,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0x19 => .{
+                .operation = .ora,
+                .mode = .absolute_y,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0x01 => .{
+                .operation = .ora,
+                .mode = .indexed_indirect,
+                .bytes = 2,
+                .cycles = 6,
+            },
+            0x11 => .{
+                .operation = .ora,
+                .mode = .indirect_indexed,
+                .bytes = 2,
+                .cycles = 5,
+                .page_cycle_penalty = true,
+            },
+            // EOR
+            0x49 => .{
+                .operation = .eor,
+                .mode = .immediate,
+                .bytes = 2,
+                .cycles = 2,
+            },
+            0x45 => .{
+                .operation = .eor,
+                .mode = .zeropage,
+                .bytes = 2,
+                .cycles = 3,
+            },
+            0x55 => .{
+                .operation = .eor,
+                .mode = .zeropage_x,
+                .bytes = 2,
+                .cycles = 4,
+            },
+            0x4D => .{
+                .operation = .eor,
+                .mode = .absolute,
+                .bytes = 3,
+                .cycles = 4,
+            },
+            0x5D => .{
+                .operation = .eor,
+                .mode = .absolute_x,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0x59 => .{
+                .operation = .eor,
+                .mode = .absolute_y,
+                .bytes = 3,
+                .cycles = 4,
+                .page_cycle_penalty = true,
+            },
+            0x41 => .{
+                .operation = .eor,
+                .mode = .indexed_indirect,
+                .bytes = 2,
+                .cycles = 6,
+            },
+            0x51 => .{
+                .operation = .eor,
+                .mode = .indirect_indexed,
+                .bytes = 2,
+                .cycles = 5,
+                .page_cycle_penalty = true,
+            },
             else => error.UnknownOperation,
         };
     }
@@ -350,14 +926,80 @@ pub const CPU = struct {
             .cld => {
                 self.setFlag(Flags.Decimal, false);
             },
+
+            // load
             .lda => {
                 const value = self.bus.read(addr_res.addr);
                 self.a = value;
-                self.setFlag(Flags.Zero, self.a == 0);
-                self.setFlag(Flags.Negative, self.a & 0x80 != 0);
+                self.setFlagZN();
             },
+            .ldx => {
+                const value = self.bus.read(addr_res.addr);
+                self.x = value;
+                self.setFlagZN();
+            },
+            .ldy => {
+                const value = self.bus.read(addr_res.addr);
+                self.y = value;
+                self.setFlagZN();
+            },
+
+            // store
+            .sta => {
+                const value = self.a;
+                self.bus.write(addr_res.addr, value);
+            },
+            .stx => {
+                const value = self.x;
+                self.bus.write(addr_res.addr, value);
+            },
+            .sty => {
+                const value = self.y;
+                self.bus.write(addr_res.addr, value);
+            },
+
+            // register
+            .tax => {
+                self.x = self.a;
+                self.setFlagZN();
+            },
+            .tay => {
+                self.y = self.a;
+                self.setFlagZN();
+            },
+            .txa => {
+                self.a = self.x;
+                self.setFlagZN();
+            },
+            .tya => {
+                self.a = self.y;
+                self.setFlagZN();
+            },
+            .tsx => {
+                self.x = self.sp;
+                self.setFlagZN();
+            },
+            .txs => {
+                self.sp = self.x;
+            },
+
+            // stack
+            .pha => self.pushStack(self.a),
+            .php => self.pushStack(self.status),
+            .pla => {
+                self.a = self.popStack();
+                self.setFlagZN();
+            },
+            .plp => {
+                self.status = self.popStack();
+            },
+
+            // arithmetic
+            .adc => {},
         }
         self.cycles += ins.cycles;
+        if (ins.page_cycle_penalty & addr_res.page_crossed)
+            self.cycles += 1;
     }
     // -------- OPCODE EXCUTION --------
 };
